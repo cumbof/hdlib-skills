@@ -136,9 +136,12 @@ descriptions of every skill in this repository.
 
 ## How the skills were authored
 
-Each skill was written against the actual source code of `cumbof/hdlib` and the
-docstrings within it. Code blocks marked as runnable were tested against the
-public API. See `CONTRIBUTING.md` for how to add or update a skill.
+Each skill was written against the actual source code of `cumbof/hdlib`
+and the docstrings within it. The canonical code block from every skill
+is exercised by [`test/smoke_test.py`](./test/smoke_test.py), which
+passes against `hdlib==2.1.0`. See [`test/README.md`](./test/README.md)
+for how to run it locally. New skills must add a corresponding test
+entry. See `CONTRIBUTING.md` for how to add or update a skill.
 
 ## License
 

@@ -71,6 +71,17 @@ QuantumClassificationModel(
 If `noise_model_from` is supplied without `api_key`, raises
 `ValueError("`api_key` must be provided to fetch backend properties for a noise model.")`.
 
+> **GPU fallback gotcha:** The constructor wraps
+> `AerSimulator(device="GPU", ...)` in a `try` / `except`, but on most
+> systems `AerSimulator(device="GPU")` *constructs* successfully and only
+> fails at *run* time with `"Simulation device 'GPU' is not supported on
+> this system"`. As a result `predict` raises this error from inside
+> `run_compute_uncompute_test`. If you hit it, force CPU by setting an
+> environment variable that masks any installed CUDA libs or by patching
+> the constructor (`model.backend = AerSimulator()` after construction).
+> Better yet, install `qiskit-aer-gpu` only on machines with a CUDA-capable
+> GPU.
+
 ### Stored attributes after `__init__`
 
 | Attribute | Type | Notes |

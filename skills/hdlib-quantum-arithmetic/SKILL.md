@@ -114,17 +114,27 @@ majority vote of the inputs.
   variant. For each basis state `j`, computes a vote (`+1` or `-1`)
   across all input circuits, then scales the symmetric target phase by
   `1 / N` (the number of inputs). Preserves composability for further
-  bundling.
-- `method="classical"` &mdash; falls back to the classical implementation:
-  it decodes every input to a bipolar ndarray, computes the element-wise
-  sum, maps via `exp(i * pi * x / rms)` to a unit-modulus phase vector,
-  and re-encodes as a single `DiagonalGate`. Use this when you want exact
-  arithmetic and do not need to chain further quantum operations.
+  bundling. **Decoding the result with `statevector_to_bipolar` yields
+  the majority-vote vector.**
+- `method="classical"` &mdash; preserves the *magnitude* of the bundled
+  vector. It decodes every input to a bipolar ndarray, computes the
+  element-wise sum, then maps each component via
+  `exp(i * pi * x / rms)` (RMS-scaled phase encoding). The output is no
+  longer a clean `{-1, +1}` oracle &mdash; the phases capture both sign
+  *and* relative magnitude. **Decoding with `statevector_to_bipolar`
+  does NOT give back the majority vote**; it gives a heuristic sign
+  read of the magnitude-preserving phases. Use this only when you need
+  the magnitude-preserving variant downstream and accept that round-trip
+  decoding is approximate.
 
 ```python
-bundled_qc = bundle([encode(v) for v in many_vectors])
-# or:
-bundled_qc = bundle([encode(v) for v in many_vectors], method="classical")
+# Majority-vote bundle - round-trips through statevector_to_bipolar
+bundled = bundle([encode(v) for v in many_vectors])    # method="average"
+majority = statevector_to_bipolar(bundled)             # exact majority vote
+
+# Magnitude-preserving bundle - useful for downstream quantum ops
+bundled = bundle([encode(v) for v in many_vectors], method="classical")
+# statevector_to_bipolar(bundled) is NOT the majority vote
 ```
 
 Empty list raises `ValueError`.
@@ -185,8 +195,8 @@ v3 = np.array([ 1, 1,-1,-1, 1, 1,-1,-1])
 
 c1, c2, c3 = encode(v1), encode(v2), encode(v3)
 
-# Classical bundle inside quantum
-bundled = bundle([c1, c2, c3], method="classical")
+# Majority-vote bundle (default method="average")
+bundled = bundle([c1, c2, c3])
 print(statevector_to_bipolar(bundled))    # majority vote over v1, v2, v3
 
 # Binding

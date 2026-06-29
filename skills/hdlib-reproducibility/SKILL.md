@@ -31,7 +31,7 @@ and function.
 |:----|:--------------------------|:-------|
 | `Vector(...)` | Explicit `seed=int` argument | Pass `seed=...` |
 | `Space(...)` | None &mdash; constructor does not generate random vectors | n/a |
-| `Space.bulk_insert(names, tags)` | Internal `Vector(name=..., size=...)` calls without seed | Build vectors with `Vector(seed=...)` and `Space.insert(vec)` instead |
+| `Space.bulk_insert(names, tags=None)` | Internal `Vector(...)` calls have **no seed**; the iteration order over `names` is `set`-based (non-deterministic). Tags supplied positionally may even be misaligned. | Avoid `bulk_insert` when reproducibility matters. Build vectors with `Vector(seed=...)` and call `Space.insert(vec)` individually. |
 | `ClassificationModel.fit(points, labels, seed=None)` | Explicit `seed` argument controls level vector RNG | Pass `seed=...` |
 | `ClassificationModel.cross_val_predict` | `StratifiedKFold(random_state=0)` &mdash; deterministic split. Underlying `predict` uses the level vectors from `fit` | Seed `fit` once; the rest is deterministic |
 | `ClassificationModel.auto_tune` | Each candidate calls `ClassificationModel(...).fit(...)` **without** a seed | Currently *not* deterministic. To make it so, copy and modify the implementation or seed before each fit yourself |
@@ -39,7 +39,7 @@ and function.
 | `QuantumClassificationModel(seed=int, ...)` | Explicit `seed` argument | Pass `seed=...` |
 | `QuantumClassificationModel.predict` (simulator) | `run_compute_uncompute_test(..., seed=self.seed)` -> `backend.run(..., seed_simulator=seed)` | Same as model seed |
 | `QuantumClassificationModel.predict` (hardware) | Shot noise from real hardware; **not deterministic** | n/a (use simulator for reproducible tests) |
-| `GraphModel(size, directed, seed=int)` | Explicit `seed`; controls `self.rand` used for auto-threshold non-neighbour sampling and node-vector construction | Pass `seed=...` |
+| `GraphModel(size, directed, seed=int)` | Explicit `seed`; controls only `self.rand` used for auto-threshold non-neighbour sampling. **Node and weight vectors are still constructed via `Vector(...)` without a seed,** so they are *not* deterministic across runs even with `seed=...` set. | Pass `seed=...` for threshold reproducibility, but expect node vectors to differ. To get fully deterministic graphs, pre-build the node `Vector`s with `Vector(seed=...)`, manually insert them into `graph.space`, then call `graph.fit(edges, build_nodes_memory=True)` |
 | `GraphModel.edge_exists(..., threshold=None)` | Uses `self.rand` for non-neighbour sampling | Seeded by `GraphModel(seed=...)`. Or pass `threshold=...` explicitly |
 | `ClusteringModel(k, n_features, seed=int)` | `np.random.seed(self.seed)` set in constructor. Projection matrix and initial centroids draw from the global RNG | Pass `seed=...`. **Does not reseed on subsequent fits** &mdash; construct a fresh model for each deterministic run |
 | `RegressionEncoder(D, n_features)` | Uses global NumPy RNG (`np.random.randn`, `np.random.uniform`) | Call `np.random.seed(N)` immediately before constructing |
@@ -82,9 +82,27 @@ graph = GraphModel(size=10000, directed=False, seed=0)
 graph.fit(edges)
 ```
 
-The node random vectors, the weight random vectors, **and** the
-auto-threshold non-neighbour sampling are all deterministic with this
-seed.
+`seed=...` makes the **auto-threshold non-neighbour sampling** in
+`edge_exists` deterministic. It does **not** seed the per-node
+`Vector(name=..., size=...)` calls inside `_add_edge` &mdash; those still
+draw from a fresh `np.random.default_rng()`. If you need the node and
+weight vectors themselves to be bit-identical across runs, pre-construct
+each node vector with `seed=...` and inject the `memory` / `weights`
+attributes that `_add_edge` would normally attach:
+
+```python
+import numpy as np
+from hdlib.vector import Vector
+
+graph = GraphModel(size=10000, directed=False, seed=0)
+for node in {n for edge in edges for n in edge[:2]}:
+    v = Vector(name=node, size=graph.size, vtype=graph.vtype,
+               seed=hash(node) % (2**31))
+    setattr(v, "memory", None)
+    setattr(v, "weights", {})
+    graph.space.insert(v)
+graph.fit(edges)
+```
 
 ### Clustering
 

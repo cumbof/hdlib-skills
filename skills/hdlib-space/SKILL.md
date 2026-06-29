@@ -99,10 +99,27 @@ space.bulk_insert(
 If a name is already in the space, `bulk_insert` raises `Exception` unless
 `ignore_existing=True`, in which case it silently skips the duplicate.
 
-> **Gotcha:** `bulk_insert` calls `set(names)` internally, so duplicates in
-> the input list are deduplicated *before* iteration. The order in which the
-> resulting unique names are inserted is determined by Python's set order
-> (effectively unspecified).
+> **Critical gotcha:** `bulk_insert` calls `set(names)` internally, so the
+> iteration order **does not match the input list order**. The implementation
+> then uses `tags[pos]` where `pos` is the position in the set-iteration
+> order, so **tags get misaligned with names** when both `names` and `tags`
+> are supplied. Today (`hdlib==2.1.0`) the only safe ways to insert tagged
+> vectors in bulk are:
+>
+> ```python
+> # 1) Insert one at a time with explicit Vector(...) calls
+> for name, tag_set in zip(names, tag_lists):
+>     v = Vector(name=name, size=space.size, vtype=space.vtype, tags=set(tag_set))
+>     space.insert(v)
+>
+> # 2) bulk_insert names first, then add tags afterwards
+> space.bulk_insert(names=names)
+> for name, tag_set in zip(names, tag_lists):
+>     for t in tag_set:
+>         space.add_tag(name, t)
+> ```
+>
+> Avoid passing `tags=` to `bulk_insert` until upstream is fixed.
 
 ## Lookups
 
@@ -245,16 +262,16 @@ from hdlib.space import Space, Vector
 from hdlib.arithmetic import bundle
 
 space = Space(size=10000, vtype="bipolar")
-space.bulk_insert(
-    names=["apple", "banana", "cherry", "celery", "carrot"],
-    tags=[
-        ["fruit", "red"],
-        ["fruit", "yellow"],
-        ["fruit", "red"],
-        ["vegetable", "green"],
-        ["vegetable", "orange"],
-    ],
-)
+space.bulk_insert(names=["apple", "banana", "cherry", "celery", "carrot"])
+for name, tag_set in [
+    ("apple",  ["fruit", "red"]),
+    ("banana", ["fruit", "yellow"]),
+    ("cherry", ["fruit", "red"]),
+    ("celery", ["vegetable", "green"]),
+    ("carrot", ["vegetable", "orange"]),
+]:
+    for tag in tag_set:
+        space.add_tag(name, tag)
 
 # Build a composite "red things" vector from every red item
 red_items = space.get(tags=["red"])
@@ -277,6 +294,10 @@ print(best, dist)   # "red_composite" itself (dist ~ 0); next-closest -> apple/c
   `Exception` at `insert`. Build vectors via `space.bulk_insert` to inherit
   these automatically, or pass `size=space.size, vtype=space.vtype` when
   constructing a `Vector` manually.
+- **`bulk_insert(names=..., tags=...)` misaligns tags with names** because
+  `set(names)` reorders the input list. Avoid the `tags=` argument until
+  upstream is fixed; insert tagged vectors one at a time or call
+  `add_tag` afterwards.
 - **Renaming a vector already in the space** &mdash; the space index still
   points at the old name. Always `remove(...)` -> rename -> `insert(...)`.
 - **`space.find` on an empty space** &mdash; returns `(None, np.inf)`. Treat

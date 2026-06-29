@@ -161,8 +161,10 @@ discarded every combination. The most common reason is
 - `Vector(...)` without `seed=...` uses fresh randomness each time.
 - `ClassificationModel.fit` requires `seed=...` for reproducible level
   vectors.
-- `GraphModel(seed=...)` controls only the auto-threshold sampling in
-  `edge_exists`.
+- `GraphModel(seed=...)` controls *only* the auto-threshold sampling in
+  `edge_exists` &mdash; not the per-node random vectors generated inside
+  `_add_edge`. Node vectors are therefore non-deterministic across runs
+  even with a seed.
 - `ClusteringModel(seed=...)` seeds NumPy's **global** RNG once at
   construction; subsequent fits drift.
 - `RegressionEncoder` and `RegressionModel.cluster_models_b` use the
@@ -190,6 +192,25 @@ zero-mean unit-variance) **before** calling `fit`.
 
 **Fix:** Use `size in {32, 64, 128, 256, 512, 1024}`. The classical
 default `10000` is **not** a power of 2 and cannot be reused here.
+
+## 13b. `QuantumClassificationModel.predict` raises `'GPU' is not supported on this system`
+
+**Where:** `QuantumClassificationModel.__init__` chooses
+`AerSimulator(device="GPU", ...)` if the constructor succeeds &mdash; but
+the GPU-device error is raised at **run** time, not at construction.
+
+**Symptom:** `Exception('Simulation device "GPU" is not supported on this system.')`
+from inside `run_compute_uncompute_test`.
+
+**Fix:** Force the backend to CPU after construction:
+
+```python
+from qiskit_aer import AerSimulator
+model = QuantumClassificationModel(size=32, levels=4)
+model.backend = AerSimulator()    # CPU default
+```
+
+Or install `qiskit-aer-gpu` only on machines that actually have CUDA.
 
 ## 14. `levels` features being collapsed by min/max global range
 
@@ -220,6 +241,35 @@ Mutating `vector.name` afterwards does not update the index.
 **Cause:** `vector.tags.add(tag)` doesn't update `space.tags[tag]`.
 
 **Fix:** Use `space.add_tag(name, tag)` and `space.remove_tag(name, tag)`.
+
+## 16b. `Space.bulk_insert(names=..., tags=...)` misaligns tags
+
+**Where:** `hdlib/space.py:Space.bulk_insert`.
+
+**Symptom:** After `bulk_insert(names=["a", "b", "c"], tags=[["red"], ["green"], ["blue"]])`,
+the tags ended up attached to the wrong names.
+
+**Cause:** `bulk_insert` calls `names = set(names)` and then iterates with
+`enumerate(names)`. The set iteration order is **not** the input list
+order, but the function still uses `tags[pos]` indexed by the set
+position. Names and tag-lists end up shuffled relative to each other.
+
+**Fix:** Until this is fixed upstream, do not pass `tags=` to
+`bulk_insert`. Either build the vectors yourself:
+
+```python
+for name, tag_set in zip(names, tag_lists):
+    space.insert(Vector(name=name, size=space.size, vtype=space.vtype, tags=set(tag_set)))
+```
+
+or `bulk_insert` names only and then call `add_tag`:
+
+```python
+space.bulk_insert(names=names)
+for name, tag_set in zip(names, tag_lists):
+    for tag in tag_set:
+        space.add_tag(name, tag)
+```
 
 ## 17. `Space(size=10)` silently accepts a tiny size
 

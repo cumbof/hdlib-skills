@@ -59,7 +59,19 @@ Before submitting a PR:
    exception is faithful to the implementation.
 2. Run the canonical example from your skill. If the example needs data, use
    a small sklearn dataset (e.g. `sklearn.datasets.load_iris`).
-3. Open the index (`skills/README.md`) and add an entry for new skills.
+3. Add (or extend) a `test_<short_name>` function in
+   [`test/smoke_test.py`](./test/smoke_test.py) that exercises the same
+   code block. Append the function to the `tests` list at the bottom of
+   that file and re-run:
+
+   ```bash
+   python -m venv .venv && source .venv/bin/activate
+   pip install hdlib
+   python test/smoke_test.py
+   ```
+
+   The last line must read `All N skill smoke tests passed.`.
+4. Open the index (`skills/README.md`) and add an entry for new skills.
 
 ## Versioning
 
